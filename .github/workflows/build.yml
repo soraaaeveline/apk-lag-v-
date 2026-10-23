@@ -68,8 +68,8 @@ jobs:
                   applicationId = "com.stresstest"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 25
-                  versionName = "25.0"
+                  versionCode = 27
+                  versionName = "27.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -253,7 +253,11 @@ jobs:
                       val btnParams = FrameLayout.LayoutParams(80, 80)
                       btnParams.gravity = Gravity.CENTER
                       layoutParams = btnParams
-                      setOnClickListener { stopPrank(); finish() }
+                      setOnClickListener { 
+                          stopPrank() 
+                          try { stopLockTask() } catch (e: Exception) {}
+                          finish() 
+                      }
                   }
                   rootLayout.addView(stopBtn)
                   stopBtn.bringToFront()
@@ -270,6 +274,7 @@ jobs:
                   handler.postDelayed({
                       if (isRunning) {
                           stopPrank()
+                          try { stopLockTask() } catch (e: Exception) {}
                           finish()
                       }
                   }, 60000)
@@ -292,6 +297,14 @@ jobs:
                   }
 
                   setContentView(rootLayout)
+                  
+                  // --- 8. SEMATKAN APLIKASI (SCREEN PINNING) ---
+                  try {
+                      startLockTask()
+                  } catch (e: Exception) {
+                      // Abaikan jika perangkat tidak mendukung
+                  }
+
                   startVibration()
                   startMultiSound()
                   rootLayout.post { flyingViews.forEach { startFlying(it) } }
@@ -375,7 +388,11 @@ jobs:
                   mediaPlayers.clear()
               }
 
-              override fun onDestroy() { stopPrank(); super.onDestroy() }
+              override fun onDestroy() { 
+                  stopPrank() 
+                  try { stopLockTask() } catch (e: Exception) {}
+                  super.onDestroy() 
+              }
               override fun onBackPressed() { }
           }
           EOF
