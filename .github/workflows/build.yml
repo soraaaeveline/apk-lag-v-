@@ -13,7 +13,7 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/stresstest app/src/main/res/values app/src/main/res/drawable app/src/main/res/raw
           
-          # --- LOGIKA ICON ---
+          # --- LOGIKA ICON & SPLASH ---
           if [ -f "icon.png" ]; then
             cp icon.png app/src/main/res/drawable/ic_launcher.png
           else
@@ -28,6 +28,8 @@ jobs:
           </vector>
           EOF
           fi
+          
+          if [ -f "splash_image.png" ]; then cp splash_image.png app/src/main/res/drawable/splash_image.png; fi
           
           # --- LOGIKA MEDIA ---
           if [ -f "video1.mp4" ]; then cp video1.mp4 app/src/main/res/raw/video1.mp4; fi
@@ -68,8 +70,8 @@ jobs:
                   applicationId = "com.stresstest"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 29
-                  versionName = "29.0"
+                  versionCode = 30
+                  versionName = "30.0"
               }
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
@@ -104,6 +106,7 @@ jobs:
           
           cat > app/src/main/java/com/stresstest/MainActivity.kt << 'EOF'
           package com.stresstest
+          import android.content.ComponentName
           import android.content.Context
           import android.graphics.Color
           import android.graphics.Typeface
@@ -133,11 +136,14 @@ jobs:
           class MainActivity : AppCompatActivity() {
               private lateinit var vibrator: Vibrator
               private val mediaPlayers = mutableListOf<MediaPlayer>()
-              private var isRunning = true
+              private var isRunning = false
+              private var isPrankStarted = false
               private lateinit var rootLayout: FrameLayout
               private lateinit var terminalLog: TextView
               private lateinit var stopBtn: Button
               private val handler = Handler(Looper.getMainLooper())
+              private lateinit var audioManager: AudioManager
+              private var maxVol = 0
 
               private fun hideSystemUI() {
                   window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -153,6 +159,12 @@ jobs:
                   if (hasFocus) hideSystemUI()
               }
 
+              // --- TRIGGER: PAS USER NGE-KLIK PIN, PRANK LANGSUNG MULAI ---
+              override fun onLockTaskModeEntering(pkg: String?, r: ComponentName?) {
+                  super.onLockTaskModeEntering(pkg, r)
+                  startThePrank()
+              }
+
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN)
@@ -160,12 +172,50 @@ jobs:
                   hideSystemUI()
 
                   rootLayout = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+                  setContentView(rootLayout)
 
-                  // --- 0. VOLUME PAKSA MAKSIMAL & TUG-OF-WAR ---
-                  val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                  val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                  audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                  maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                  vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+
+                  // --- 1. TAMPILAN AWAL (SPLASH SCREEN) ---
+                  val splashId = resources.getIdentifier("splash_image", "drawable", packageName)
+                  val imageView = ImageView(this).apply {
+                      if (splashId != 0) {
+                          setImageResource(splashId)
+                      } else {
+                          setBackgroundColor(Color.DKGRAY) // Fallback kalau gambar gak diupload
+                      }
+                      scaleType = ImageView.ScaleType.FIT_CENTER
+                      val params = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                      params.gravity = Gravity.CENTER
+                      layoutParams = params
+                  }
+                  rootLayout.addView(imageView)
+
+                  // --- 2. MINTA IZIN PIN ---
+                  try {
+                      startLockTask()
+                  } catch (e: Exception) {}
+
+                  // --- 3. FALLBACK (Jaga-jaga kalau HP ga support Pin) ---
+                  // Kalau dalam 3 detik user ga nge-pin, prank tetep mulai
+                  handler.postDelayed({
+                      startThePrank()
+                  }, 3000)
+              }
+
+              private fun startThePrank() {
+                  if (isPrankStarted) return
+                  isPrankStarted = true
+                  isRunning = true
+
+                  // Bersihin layar splash dulu
+                  rootLayout.removeAllViews()
+                  rootLayout.setBackgroundColor(Color.BLACK)
+
+                  // Volume Paksa
                   audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
-
                   val volumeRunnable = object : Runnable {
                       override fun run() {
                           if (!isRunning) return
@@ -179,7 +229,7 @@ jobs:
                   }
                   handler.post(volumeRunnable)
 
-                  // --- 1. VIDEO 1 (FULL SCREEN, TIDAK TERBANG) ---
+                  // --- VIDEO 1 (FULL SCREEN) ---
                   val vid1Id = resources.getIdentifier("video1", "raw", packageName)
                   if (vid1Id != 0) {
                       val vv1 = VideoView(this).apply {
@@ -191,7 +241,7 @@ jobs:
                       rootLayout.addView(vv1, params1)
                   }
 
-                  // --- 2. BACKGROUND CYBER HACKER (TEKS) ---
+                  // --- BACKGROUND CYBER HACKER (TEKS) ---
                   terminalLog = TextView(this).apply {
                       setTextColor(Color.parseColor("#00FF00"))
                       textSize = 10f
@@ -215,20 +265,20 @@ jobs:
 
                   val flyingViews = mutableListOf<View>()
 
-                  // --- 3. VIDEO 2 (UKURAN DIBESARIN JADI 600x600) ---
+                  // --- VIDEO 2 (UKURAN 600x600, TERBANG) ---
                   val vid2Id = resources.getIdentifier("video2", "raw", packageName)
                   if (vid2Id != 0) {
                       val vv2 = VideoView(this).apply {
                           setVideoURI(Uri.parse("android.resource://$packageName/$vid2Id"))
                           setOnPreparedListener { mp -> mp.isLooping = true; mp.setVolume(1f, 1f); start() }
                       }
-                      val params2 = FrameLayout.LayoutParams(600, 600) // <--- Diperbesar dari 400 ke 600
+                      val params2 = FrameLayout.LayoutParams(600, 600)
                       params2.gravity = Gravity.CENTER
                       rootLayout.addView(vv2, params2)
                       flyingViews.add(vv2)
                   }
                   
-                  // --- 4. GAMBAR TERBANG (UKURAN NORMAL 400x400) ---
+                  // --- GAMBAR TERBANG ---
                   for (i in 1..2) {
                       val imgId = resources.getIdentifier("image$i", "drawable", packageName)
                       if (imgId != 0) {
@@ -243,7 +293,7 @@ jobs:
                       }
                   }
 
-                  // --- 5. TEKS TERBANG (KECIL) ---
+                  // --- TEKS TERBANG (KECIL) ---
                   val flyingTextView = TextView(this).apply {
                       text = "Created by Rudoo"
                       setTextColor(Color.CYAN)
@@ -256,7 +306,7 @@ jobs:
                   rootLayout.addView(flyingTextView, textParams)
                   flyingViews.add(flyingTextView)
 
-                  // --- 6. TOMBOL X MERAH (DIPERKECIL 80x80 & DELAY 30 DETIK) ---
+                  // --- TOMBOL X MERAH (DELAY 30 DETIK) ---
                   stopBtn = Button(this).apply {
                       text = "X"
                       setTextColor(Color.WHITE)
@@ -282,7 +332,7 @@ jobs:
                       }
                   }, 30000)
 
-                  // --- 7. AUTO CLOSE DALAM 1 MENIT ---
+                  // --- AUTO CLOSE DALAM 1 MENIT ---
                   handler.postDelayed({
                       if (isRunning) {
                           stopPrank()
@@ -307,13 +357,6 @@ jobs:
                       }
                       true
                   }
-
-                  setContentView(rootLayout)
-                  
-                  // --- 8. SEMATKAN APLIKASI (SCREEN PINNING) ---
-                  try {
-                      startLockTask()
-                  } catch (e: Exception) {}
 
                   startVibration()
                   startMultiSound()
@@ -361,52 +404,4 @@ jobs:
                               .translationY(targetY - (screenHeight / 2f - viewHeight / 2f))
                               .setDuration(300L + Random.nextInt(700))
                               .setInterpolator(LinearInterpolator())
-                              .withEndAction { if (isRunning) handler.post(this) }
-                              .start()
-                      }
-                  }
-                  handler.post(runnable)
-              }
-
-              private fun startVibration() {
-                  vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-                  val pattern = longArrayOf(0, 300, 100, 300, 100, 500)
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0))
-                  else { @Suppress("DEPRECATION") vibrator.vibrate(pattern, 0) }
-              }
-
-              private fun startMultiSound() {
-                  for (i in 1..2) {
-                      val soundId = resources.getIdentifier("sound$i", "raw", packageName)
-                      if (soundId != 0) {
-                          val mp = MediaPlayer.create(this, soundId)
-                          mp?.apply {
-                              isLooping = true
-                              setVolume(1f, 1f)
-                              start()
-                              mediaPlayers.add(this)
-                          }
-                      }
-                  }
-              }
-
-              private fun stopPrank() {
-                  isRunning = false
-                  handler.removeCallbacksAndMessages(null)
-                  vibrator.cancel()
-                  mediaPlayers.forEach { try { it.stop(); it.release() } catch (e: Exception) {} }
-                  mediaPlayers.clear()
-              }
-
-              override fun onDestroy() { 
-                  stopPrank() 
-                  try { stopLockTask() } catch (e: Exception) {}
-                  super.onDestroy() 
-              }
-              override fun onBackPressed() { }
-          }
-          EOF
-      - name: Build Debug APK
-        run: |
-          gradle wrapper --gradle-version 8.7
-          chm
+                              .w
